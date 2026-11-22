@@ -9,12 +9,14 @@ import json
 import threading
 import time
 import uuid
+from concurrent.futures import CancelledError
 from pathlib import Path
 
 from backend.core.paths import OUTPUTS_DIR
 
 _lock = threading.Lock()
 _jobs: dict[str, dict] = {}
+INCOMPLETE_MARKER = ".analysis-incomplete"
 
 
 def _new_job_id() -> str:
@@ -62,14 +64,38 @@ def get(job_id: str) -> dict | None:
     return _scan_output_job(job_id)
 
 
-def _update(job_id: str, **fields) -> None:
+def request_cancel(job_id: str) -> None:
     with _lock:
-        if job_id in _jobs:
-            _jobs[job_id].update(fields)
+        job = _jobs.get(job_id)
+        if job is not None:
+            if job["status"] == "queued":
+                _mark_cancelled(job)
+            elif job["status"] == "processing":
+                job.update(status="cancelling", stage="Cancelling")
+            elif job["status"] not in {"cancelling", "cancelled"}:
+                raise ValueError("Analysis has already finished.")
+            return
+    if _scan_output_job(job_id) is not None:
+        raise ValueError("Analysis has already finished.")
+    raise FileNotFoundError("Analysis job not found.")
+
+
+def _mark_cancelled(job: dict) -> None:
+    job.update(status="cancelled", stage="Cancelled", finished_at=time.time())
+
+
+def _check_cancelled(job: dict) -> None:
+    if job["status"] in {"cancelling", "cancelled"}:
+        raise CancelledError
 
 
 def set_stage(job_id: str, stage: str) -> None:
-    _update(job_id, stage=stage)
+    with _lock:
+        job = _jobs[job_id]
+        _check_cancelled(job)
+        job.update(status="processing", stage=stage, current_frame=0, total_frames=0)
+        if stage != "Export":
+            job["progress"] = 0
 
 
 def update_progress(job_id: str, frame_count: int, total_frames: int) -> None:
@@ -77,6 +103,7 @@ def update_progress(job_id: str, frame_count: int, total_frames: int) -> None:
         job = _jobs.get(job_id)
         if not job:
             return
+        _check_cancelled(job)
         job["current_frame"] = frame_count
         job["total_frames"] = total_frames
         if total_frames > 0:
@@ -85,19 +112,31 @@ def update_progress(job_id: str, frame_count: int, total_frames: int) -> None:
 
 
 def complete(job_id: str, result: dict) -> None:
-    _update(job_id, status="completed", progress=100, finished_at=time.time(),
-            stage="Completed", result=result)
+    with _lock:
+        job = _jobs[job_id]
+        _check_cancelled(job)
+        if result.get("output_dir"):
+            (Path(result["output_dir"]) / INCOMPLETE_MARKER).unlink(missing_ok=True)
+        job.update(status="completed", progress=100, finished_at=time.time(),
+                   stage="Completed", result=result)
 
 
 def fail(job_id: str, exc: Exception, tb: str = "") -> None:
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return
+        if job["status"] in {"cancelling", "cancelled"}:
+            if job["status"] == "cancelling":
+                _mark_cancelled(job)
+            return
+        job.update(status="failed", finished_at=time.time(), stage="Failed", error=str(exc))
     # Keep a concise user-safe message; the full traceback goes to the log.
     import logging
 
     logging.getLogger("goodbadminton.backend").error(
         "Job %s failed:\n%s", job_id, tb or exc
     )
-    _update(job_id, status="failed", finished_at=time.time(), stage="Failed",
-            error=str(exc))
 
 
 # --------------------------------------------------------------------------- #
@@ -115,7 +154,7 @@ def _scan_output_job(job_id: str) -> dict | None:
     """
     d = OUTPUTS_DIR / job_id
     meta_path = d / "metadata.json"
-    if not meta_path.is_file():
+    if (d / INCOMPLETE_MARKER).exists() or not meta_path.is_file():
         return None
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -128,9 +167,13 @@ def _scan_output_job(job_id: str) -> dict | None:
     # Prefer the final annotated video (web_detect_*) over the intermediate one.
     video_file = None
     for candidate in sorted(d.iterdir()):
-        if candidate.suffix.lower() in _VIDEO_SUFFIXES:
+        if (candidate.suffix.lower() in _VIDEO_SUFFIXES
+                and not candidate.name.startswith("temp_")
+                and candidate.is_file() and candidate.stat().st_size > 0):
             if candidate.name.startswith("web_detect_") or video_file is None:
                 video_file = candidate
+    if video_file is None:
+        return None
 
     # Collect visualizations recursively (position_visualizations/, detect_images/…).
     visualizations: list[str] = []

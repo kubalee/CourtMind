@@ -66,6 +66,8 @@ def run_analysis_job(job_id: str, video_id: str, corners, options: dict,
             job_service.update_progress(job_id, frame_count, total_frames)
 
         output_dir = OUTPUTS_DIR / job_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / job_service.INCOMPLETE_MARKER).touch()
         result = run_analysis(
             video_path=str(video_path),
             template_path=template_path,
@@ -74,6 +76,7 @@ def run_analysis_job(job_id: str, video_id: str, corners, options: dict,
             progress_cb=progress_cb,
             auto_template_frame=auto_template_frame,
             output_dir=str(output_dir),
+            stage_cb=lambda stage: job_service.set_stage(job_id, stage),
         )
 
         metadata_path = Path(result.get("metadata") or output_dir / "metadata.json")

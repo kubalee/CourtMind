@@ -14,7 +14,7 @@ interface AnalysisStagesProps {
 }
 
 export function AnalysisStages({ status }: AnalysisStagesProps) {
-  const current = (status.stage ?? "Analysis") as (typeof ANALYSIS_STAGES)[number]
+  const current = ANALYSIS_STAGES.find((stage) => stage === status.stage) ?? "Analysis"
   const failed = status.status === "failed"
   return (
     <div className="flex flex-wrap gap-2">

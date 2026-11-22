@@ -4,6 +4,7 @@ from tkinter import filedialog
 import tkinter as tk
 import time
 import argparse
+from concurrent.futures import CancelledError
 from dataclasses import dataclass
 
 
@@ -198,16 +199,26 @@ class BadmintonAnalysisSystem:
         self.frame_width = 0
         self.frame_height = 0
         self.performance_log_interval_frames = 150
-    def process_video(self, progress_callback=None):
+    def process_video(self, progress_callback=None, stage_callback=None):
         """Process the input video.
 
         Args:
             progress_callback: Optional callable(frame_count, total_frames)
-                invoked after each frame so callers can report progress.
+                invoked as each stage processes frames.
+            stage_callback: Optional callable(stage) invoked before each stage.
         """
         self.start_time = time.time()
 
         cap = cv2.VideoCapture(self.video_path)
+        try:
+            self._process_video(cap, progress_callback, stage_callback)
+        finally:
+            self._release_video_resources(cap)
+        if stage_callback is not None:
+            stage_callback("Export")
+        self._export_video()
+
+    def _process_video(self, cap, progress_callback, stage_callback):
         if not cap.isOpened():
             raise RuntimeError(f"Unable to open video: {self.video_path}")
 
@@ -288,7 +299,12 @@ class BadmintonAnalysisSystem:
             failures = []
             for model_name in ("tracknet_v4", "tracknet"):
                 try:
-                    self._prepare_tracknet_trajectory(total_frames, model_name=model_name)
+                    self._prepare_tracknet_trajectory(
+                        total_frames, model_name=model_name,
+                        progress_callback=progress_callback, stage_callback=stage_callback,
+                    )
+                except CancelledError:
+                    raise
                 except Exception as exc:  # noqa: BLE001
                     failures.append(f"{model_name}: {exc}")
             if failures:
@@ -298,7 +314,12 @@ class BadmintonAnalysisSystem:
                 )
             print("[Shuttlecock] Three-model ensemble ready: TrackNetV4 + TrackNetV3 + YOLO11.")
         elif self.shuttle_model in ("tracknet", "tracknet_v4"):
-            self._prepare_tracknet_trajectory(total_frames)
+            self._prepare_tracknet_trajectory(
+                total_frames, progress_callback=progress_callback, stage_callback=stage_callback,
+            )
+
+        if stage_callback is not None:
+            stage_callback("Analysis")
         
         frame_count = 0
         detect_frame_count = 0
@@ -321,9 +342,8 @@ class BadmintonAnalysisSystem:
         print(f"处理耗时: {processing_time:.2f} 秒")
         print(f"处理速度比: {processing_time/video_duration:.2f}x")
         
-        self._cleanup(cap)
-
-    def _prepare_tracknet_trajectory(self, total_frames, model_name=None):
+    def _prepare_tracknet_trajectory(self, total_frames, model_name=None,
+                                     progress_callback=None, stage_callback=None):
         """Run the selected TrackNet model once over the whole video and
         store the 0-based per-frame trajectory.  Falls back to YOLO11 if
         the temporal model cannot load or fails."""
@@ -333,6 +353,8 @@ class BadmintonAnalysisSystem:
 
         selected_model = model_name or self.shuttle_model
         model_label = "TrackNetV4" if selected_model == "tracknet_v4" else "TrackNetV3"
+        if stage_callback is not None:
+            stage_callback(model_label)
         cache_path = os.path.join(self.save_dir, f"{selected_model}_trajectory.json")
         detector = None
         try:
@@ -362,9 +384,10 @@ class BadmintonAnalysisSystem:
                     rectifier_path=self.tracknet_rectifier_path,
                     device="auto",
                 )
-            trajectory = detector.process_video(self.video_path)
-            detector.close()
-            detector = None
+            try:
+                trajectory = detector.process_video(self.video_path, progress_cb=progress_callback)
+            finally:
+                detector.close()
             import gc
 
             gc.collect()
@@ -387,12 +410,9 @@ class BadmintonAnalysisSystem:
             except Exception as exc:  # noqa: BLE001
                 print(f"[{model_label}] Cache write failed ({exc})")
             print(f"[Shuttlecock] Using {model_label} detector.")
+        except CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            if detector is not None:
-                try:
-                    detector.close()
-                except Exception:
-                    pass
             print(f"[{model_label}] Failed: {exc}")
             self.tracknet_trajectories.pop(selected_model, None)
             if model_name is not None:
@@ -729,21 +749,21 @@ class BadmintonAnalysisSystem:
             f.write(f"mid_height={mid_height}\n")
         return corners, roi_corners, mid_height
 
-    def _cleanup(self, cap):
-        """Clean up resources and merge audio when needed."""
+    def _release_video_resources(self, cap):
         if self.detection_writer is not None:
             self.detection_writer.close()
             self.detection_writer = None
 
         if hasattr(self, 'video_writer') and self.video_writer is not None:
             self.video_writer.release()
-            time.sleep(1)
+            self.video_writer = None
 
         cap.release()
 
         if self.show_display:
             cv2.destroyAllWindows()
 
+    def _export_video(self):
         if hasattr(self, 'keep_audio') and self.keep_audio:
             vap.process_video_with_audio(
                 video_path=self.video_path,

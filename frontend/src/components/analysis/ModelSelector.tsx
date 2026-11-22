@@ -59,6 +59,7 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="yolo">{t("configure.shuttleYolo")}</SelectItem>
             <SelectItem value="ensemble" disabled={!ensembleReady}>
               {t("configure.shuttleEnsemble")} {!ensembleReady && "(unavailable)"}
             </SelectItem>
@@ -69,7 +70,6 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
               {t("configure.shuttleTracknet")}{" "}
               {tracknetReady ? "(ready)" : "(weights missing)"}
             </SelectItem>
-            <SelectItem value="yolo">YOLO11 (yolo11s-ball.pt)</SelectItem>
           </SelectContent>
         </Select>
         {value.shuttle_model === "tracknet" && !tracknetReady && (

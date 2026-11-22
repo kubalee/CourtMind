@@ -23,7 +23,7 @@ export function AnalysisConfiguration({ value, onChange }: AnalysisConfiguration
   const [models, setModels] = useState<ModelSelection>({
     pose_family: value.pose_family as ModelSelection["pose_family"],
     pose_mode: value.pose_mode,
-    shuttle_model: value.shuttle_model ?? "tracknet",
+    shuttle_model: value.shuttle_model ?? "yolo",
   })
   const [vis, setVis] = useState<VisualizationFlags>({
     show_skeletons: value.show_skeletons,

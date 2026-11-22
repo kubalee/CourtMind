@@ -50,6 +50,8 @@ export interface BatchStatusResponse {
 export type JobStatus =
   | "queued"
   | "processing"
+  | "cancelling"
+  | "cancelled"
   | "completed"
   | "failed"
 

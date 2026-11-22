@@ -63,7 +63,7 @@ export function HistoryPage() {
                 </p>
               </div>
               <Badge variant={item.status === "completed" ? "success" : "secondary"}>
-                {item.status}
+                {t(`common.${item.status}`)}
               </Badge>
               <Button variant="ghost" size="sm" asChild>
                 <Link to={`/analysis/${item.job_id}`}>

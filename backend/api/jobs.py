@@ -43,6 +43,17 @@ def get_job_results(job_id: str):
     return JobResult(**result)
 
 
+@router.post("/{job_id}/cancel", response_model=JobStatus, status_code=202)
+def cancel_job(job_id: str):
+    try:
+        job_service.request_cancel(job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return get_job(job_id)
+
+
 @router.get("/{job_id}/timeline")
 def get_job_timeline(job_id: str):
     try:

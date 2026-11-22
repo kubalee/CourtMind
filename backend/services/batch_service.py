@@ -15,7 +15,7 @@ from backend.services import analysis_service, court_service, job_service, video
 
 _lock = threading.Lock()
 _batches: dict[str, dict] = {}
-_TERMINAL = {"completed", "failed"}
+_TERMINAL = {"completed", "failed", "cancelled"}
 
 
 def _new_batch_id() -> str:
@@ -75,6 +75,8 @@ def _run(batch_id: str) -> None:
 
         job_id = entry["job_id"]
         video_id = entry["video_id"]
+        if (job_service.get(job_id) or {}).get("status") == "cancelled":
+            continue
         try:
             state = court_service.load_court_state(video_id)
             corners = state.get("corners")
@@ -135,9 +137,9 @@ def get(batch_id: str) -> dict | None:
         })
 
     total = len(entries)
-    finished = completed + failed
+    finished = sum(job["status"] in _TERMINAL for job in jobs)
     if finished == total:
-        status = "completed_with_errors" if failed else "completed"
+        status = "completed" if completed == total else "completed_with_errors"
     else:
         status = batch["status"]
 

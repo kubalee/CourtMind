@@ -5,7 +5,7 @@ from typing import Optional
 
 class JobStatus(BaseModel):
     job_id: str
-    status: str  # queued | processing | completed | failed
+    status: str  # queued | processing | cancelling | cancelled | completed | failed
     progress: int = 0
     current_frame: int = 0
     total_frames: int = 0

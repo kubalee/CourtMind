@@ -165,7 +165,10 @@ export function NewAnalysisPage() {
 
       {step === 3 && jobStatus && (
         <div className="space-y-4">
-          <AnalysisProgress status={jobStatus} />
+          <AnalysisProgress key={jobStatus.job_id} status={jobStatus} />
+          {jobStatus.status === "cancelled" && (
+            <Button variant="outline" onClick={() => setStep(2)}>{t("analysis.backToSettings")}</Button>
+          )}
           {pollDone && !resultLoaded && jobId && (
             <Button className="w-full" onClick={() => void loadResult(jobId)}>
               {t("newAnalysis.loadResults")}

@@ -270,7 +270,7 @@ def detect_court_from_video(video_path):
 # -----------------------------------------------------------------------------
 
 def run_analysis(video_path, template_path, corners, options, progress_cb=None,
-                 auto_template_frame=None, output_dir=None):
+                 auto_template_frame=None, output_dir=None, stage_cb=None):
     """Run the full Good-Badminton analysis pipeline headlessly.
 
     Args:
@@ -286,6 +286,7 @@ def run_analysis(video_path, template_path, corners, options, progress_cb=None,
             logic when no legacy template was provided.
         output_dir: Optional explicit output directory. When omitted, an
             ``outputs/analysis_<name>`` directory is used.
+        stage_cb: Optional callable(stage) for stage updates and cancellation.
 
     Returns:
         dict containing output paths.
@@ -363,7 +364,9 @@ def run_analysis(video_path, template_path, corners, options, progress_cb=None,
         tracknet_v4_weights_path=TRACKNET_V4_WEIGHTS_PATH,
     )
     system.keep_audio = keep_audio
-    system.process_video(progress_callback=progress_cb)
+    system.process_video(progress_callback=progress_cb, stage_callback=stage_cb)
+    if stage_cb is not None:
+        stage_cb("Report")
 
     # Event post-processing runs after detections.jsonl is closed.  It adds
     # explainable hit/rally analytics to metadata and writes the full report as
@@ -386,6 +389,8 @@ def run_analysis(video_path, template_path, corners, options, progress_cb=None,
         vis_dir = os.path.join(output_dir, "position_visualizations")
         analyze_player_positions(system.detections_path, vis_dir, fps=system.fps)
 
+    if stage_cb is not None:
+        stage_cb("Export")
     web_video_path = _reencode_for_browser(system.output_video_path, output_dir)
 
     result = {

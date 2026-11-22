@@ -7,7 +7,7 @@ export const DEFAULT_OPTIONS: AnalysisOptions = {
   pose_mode: "balanced",
   yolo_pose_model: "weights/yolo11n-pose.pt",
   ball_model: "weights/yolo11s-ball.pt",
-  shuttle_model: "tracknet",
+  shuttle_model: "yolo",
   audio: true,
   show_skeletons: true,
   show_player_trajectories: true,

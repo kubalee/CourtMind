@@ -39,9 +39,6 @@ export function AnalysisResultPage() {
     if (resultError) setError(resultError)
   }, [resultError])
 
-  const running =
-    pollStatus && (pollStatus.status === "queued" || pollStatus.status === "processing")
-
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader title={t("results.title")} actions={<Badge variant="secondary">ID: {jobId}</Badge>} />
@@ -63,7 +60,7 @@ export function AnalysisResultPage() {
         </div>
       )}
 
-      {running && pollStatus && <AnalysisProgress status={pollStatus} />}
+      {pollStatus && !jobDone && <AnalysisProgress key={pollStatus.job_id} status={pollStatus} />}
 
       {result && <ResultsWorkspace result={result} />}
 
